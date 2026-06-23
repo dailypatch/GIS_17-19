@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -55,6 +56,9 @@ async def health_check():
 def calculate_zonal_stats(raster_path: str, geojson: dict) -> Dict[str, float]:
     """按 GeoJSON 多边形裁剪栅格，统计各地类面积（平方公里）"""
     
+    # ✅ 新增：检查文件是否存在
+    if not os.path.exists(raster_path):
+        raise FileNotFoundError(f"栅格文件不存在: {raster_path}，请将数据文件放入 data/ 目录")
     # 从 GeoJSON 提取几何对象
     if "features" in geojson:
         geom = shape(geojson["features"][0]["geometry"])
