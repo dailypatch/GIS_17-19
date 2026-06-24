@@ -1,20 +1,31 @@
 import os
-from fastapi import FastAPI
+import sys
+import logging
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Optional
 import rasterio
 from rasterio.mask import mask
-from shapely.geometry import shape
+from rasterio.warp import transform_geom
+from shapely.geometry import shape, mapping
 import numpy as np
+
+# ==================== 配置日志 ====================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
 # ==================== 第1步：创建 FastAPI 应用 ====================
 app = FastAPI(title="地表覆盖统计API", version="1.0")
 
-# 配置 CORS，允许前端跨域访问
+# 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 开发环境允许所有来源
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -28,7 +39,6 @@ class ZonalStatRequest(BaseModel):
     geojson: dict
     raster_path: Optional[str] = None
 
-# ESA WorldCover 11 类名称映射
 CLASS_NAMES = {
     10: "Tree cover",
     20: "Shrubland",
@@ -56,58 +66,103 @@ async def health_check():
 def calculate_zonal_stats(raster_path: str, geojson: dict) -> Dict[str, float]:
     """按 GeoJSON 多边形裁剪栅格，统计各地类面积（平方公里）"""
     
-    # ✅ 新增：检查文件是否存在
+    logger.info(f"=== 函数被调用: {raster_path} ===")
+    
     if not os.path.exists(raster_path):
-        raise FileNotFoundError(f"栅格文件不存在: {raster_path}，请将数据文件放入 data/ 目录")
-    # 从 GeoJSON 提取几何对象
+        raise FileNotFoundError(f"栅格文件不存在: {raster_path}")
+    
+    # 1. 从 GeoJSON 提取几何对象
     if "features" in geojson:
-        geom = shape(geojson["features"][0]["geometry"])
+        if isinstance(geojson["features"], list) and len(geojson["features"]) > 0:
+            geom = shape(geojson["features"][0]["geometry"])
+        else:
+            geom = shape(geojson["features"])
     else:
         geom = shape(geojson)
-    geoms = [geom.__geo_interface__]
     
-    # 用掩膜裁剪栅格
+    logger.info(f"原始 GeoJSON 类型: {geom.geom_type}")
+    
+    # 2. 修复无效几何
+    if not geom.is_valid:
+        logger.info("几何无效，尝试修复")
+        geom = geom.buffer(0)
+    
+    # 3. 读取栅格获取坐标系
     with rasterio.open(raster_path) as src:
+        src_crs = src.crs
+        logger.info(f"栅格 CRS: {src_crs}")
+        
+        # 4. 将 GeoJSON 转换为栅格坐标系
+        # 如果 GeoJSON 是 EPSG:4326 而栅格不是，自动转换
+        if src_crs != "EPSG:4326":
+            logger.info("GeoJSON 坐标自动转换到栅格坐标系...")
+            geom_geojson = mapping(geom)
+            geom_transformed = transform_geom(
+                "EPSG:4326",
+                src_crs,
+                geom_geojson
+            )
+            geom = shape(geom_transformed)
+            logger.info(f"转换后类型: {geom.geom_type}")
+        else:
+            # 如果栅格本身就是 EPSG:4326，直接使用
+            geom_geojson = mapping(geom)
+        
+        # 5. 转换为裁剪所需的格式
+        geoms = [mapping(geom)]
+        
+        # 6. 裁剪栅格
         out_image, out_transform = mask(src, geoms, crop=True)
         data = out_image[0]
         
-        # 计算像元面积（平方公里）
+        logger.info(f"data 形状: {data.shape}")
+        logger.info(f"data 唯一值: {np.unique(data)}")
+        
+        # 7. 计算像元面积（平方公里）
         pixel_width = abs(out_transform[0])
         pixel_height = abs(out_transform[4])
         pixel_area_km2 = (pixel_width * pixel_height) / 1_000_000
+        logger.info(f"像元面积: {pixel_area_km2:.8f} km²")
         
-        # 统计各分类值的像元数
+        # 8. 统计
         unique, counts = np.unique(data, return_counts=True)
         
-        # 换算为面积
+        logger.info(f"unique: {unique}")
+        logger.info(f"counts: {counts}")
+        
         stats = {}
         for value, count in zip(unique, counts):
-            if value != src.nodata:  # 排除 NoData
-                class_name = CLASS_NAMES.get(value, f"Unknown_{value}")
-                area_km2 = count * pixel_area_km2
-                stats[class_name] = round(area_km2, 3)
+            logger.info(f"处理: value={value}, count={count}")
+            if value == 0:
+                logger.info("跳过 0 (NoData)")
+                continue
+            if src.nodata is not None and value == src.nodata:
+                logger.info("跳过 NoData")
+                continue
+            
+            class_name = CLASS_NAMES.get(value, f"Unknown_{value}")
+            area_km2 = count * pixel_area_km2
+            stats[class_name] = round(area_km2, 4)
+            logger.info(f"{class_name}: {count} 个像元, {area_km2:.4f} km²")
         
-        total_area = sum(stats.values())
-        stats["total"] = round(total_area, 3)
+        stats["total"] = round(sum(stats.values()), 3)
+        logger.info(f"最终结果: {stats}")
         
         return stats
 
 # ==================== 第5步：API 接口 ====================
 @app.post("/api/zonal-stat", response_model=AreaStatResponse)
 async def zonal_stat(request: ZonalStatRequest):
-    """分区统计接口：传入 GeoJSON，返回各地类面积"""
+    logger.info("=== 接口被调用 ===")
     try:
-        # 默认数据路径（后期替换成实际路径）
         raster_path = request.raster_path or "data/study_area.tif"
-        
         stats = calculate_zonal_stats(raster_path, request.geojson)
-        
         return AreaStatResponse(
             total_area_km2=stats.pop("total", 0),
             classes=stats
         )
     except Exception as e:
-        from fastapi import HTTPException
+        logger.error(f"错误: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== 第6步：启动入口 ====================
