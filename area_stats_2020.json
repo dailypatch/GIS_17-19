@@ -1,0 +1,47 @@
+{
+  "0": {
+    "pixel_count": 507292,
+    "area_sqm": 46830137.25,
+    "area_sqkm": 46.8301
+  },
+  "10": {
+    "pixel_count": 262974,
+    "area_sqm": 24276173.31,
+    "area_sqkm": 24.2762
+  },
+  "20": {
+    "pixel_count": 100,
+    "area_sqm": 9231.4,
+    "area_sqkm": 0.0092
+  },
+  "30": {
+    "pixel_count": 8561,
+    "area_sqm": 790299.88,
+    "area_sqkm": 0.7903
+  },
+  "40": {
+    "pixel_count": 109171,
+    "area_sqm": 10078008.16,
+    "area_sqkm": 10.078
+  },
+  "50": {
+    "pixel_count": 774396,
+    "area_sqm": 71487567.25,
+    "area_sqkm": 71.4876
+  },
+  "60": {
+    "pixel_count": 132256,
+    "area_sqm": 12209076.1,
+    "area_sqkm": 12.2091
+  },
+  "80": {
+    "pixel_count": 222265,
+    "area_sqm": 20518164.01,
+    "area_sqkm": 20.5182
+  },
+  "90": {
+    "pixel_count": 20,
+    "area_sqm": 1846.28,
+    "area_sqkm": 0.0018
+  }
+}
