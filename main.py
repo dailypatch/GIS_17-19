@@ -1,21 +1,34 @@
 import json
 import os
-from fastapi import FastAPI, Query
+import sys
+import logging
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Dict, Optional, List
 
-app = FastAPI()
+# ==================== 配置日志 ====================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
-# ========== 跨域配置 ==========
+# ==================== 创建 FastAPI 应用 ====================
+app = FastAPI(title="地表覆盖统计API - 长沙市9区县", version="2.0")
+
+# ==================== CORS 跨域配置 ====================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ========== 地类名称映射（中文） ==========
-CLASS_NAMES_CN = {
+# ==================== 地类名称映射（中文） ====================
+CLASS_NAMES = {
     10: "林地",
     20: "灌木地",
     30: "草地",
@@ -29,7 +42,7 @@ CLASS_NAMES_CN = {
     100: "苔藓与地衣"
 }
 
-# ========== 区县 ID → 文件名前缀 ==========
+# ==================== 区县 ID → 文件名前缀 ====================
 DISTRICT_PREFIX = {
     1: "01_Furong",
     2: "02_Tianxin",
@@ -55,7 +68,7 @@ DISTRICT_NAMES = {
     9: "宁乡市"
 }
 
-# ========== 数据根目录 ==========
+# ==================== 数据根目录 ====================
 DATA_ROOT = "./data/data_1"
 
 def get_stats_file_path(district_id: int, year: int):
@@ -70,8 +83,7 @@ def get_stats_file_path(district_id: int, year: int):
     
     return os.path.join(DATA_ROOT, "district_stats", f"stats_{year}.json", filename)
 
-
-# ========== 接口1：获取区县列表 ==========
+# ==================== 接口1：获取区县列表 ====================
 @app.get("/api/districts")
 def get_districts():
     """获取长沙市所有区县列表"""
@@ -81,13 +93,9 @@ def get_districts():
             districts.append({"id": id, "name": name})
     return {"code": 0, "message": "success", "data": districts}
 
-
-# ========== 接口2：获取分区统计（核心） ==========
+# ==================== 接口2：获取分区统计 ====================
 @app.get("/api/stats")
-def get_stats(
-    district_id: int = Query(0, description="区县ID，0表示全市"), 
-    year: int = Query(2021, description="年份，2020或2021")
-):
+def get_stats(district_id: int = Query(0, description="区县ID，0表示全市"), year: int = Query(2021, description="年份，2020或2021")):
     """获取指定区县、指定年份的地表覆盖统计数据"""
     file_path = get_stats_file_path(district_id, year)
     
@@ -100,7 +108,6 @@ def get_stats(
     stats = data.get("stats", {})
     classes_data = stats.get("classes", {})
     
-    # 转换为前端需要的格式
     classes = []
     total_area_km2 = 0.0
     
@@ -110,17 +117,15 @@ def get_stats(
         area_km2 = area_m2 / 1_000_000
         classes.append({
             "pixel_value": code,
-            "class_name": CLASS_NAMES_CN.get(code, info.get("class_name", "未知")),
+            "class_name": CLASS_NAMES.get(code, info.get("class_name", "未知")),
             "area_sqkm": round(area_km2, 4),
             "pixel_count": info.get("pixel_count", 0)
         })
         total_area_km2 += area_km2
     
-    # 计算占比
     for item in classes:
         item["ratio"] = round(item["area_sqkm"] / total_area_km2 * 100, 2) if total_area_km2 > 0 else 0
     
-    # 按面积从大到小排序
     classes.sort(key=lambda x: x["area_sqkm"], reverse=True)
     
     district_name = DISTRICT_NAMES.get(district_id, stats.get("district", "未知"))
@@ -137,8 +142,7 @@ def get_stats(
         }
     }
 
-
-# ========== 接口3：获取区县边界 ==========
+# ==================== 接口3：获取区县边界 ====================
 @app.get("/api/districts/{district_id}/bounds")
 def get_district_bounds(district_id: int):
     """获取指定区县的 GeoJSON 边界"""
@@ -159,13 +163,9 @@ def get_district_bounds(district_id: int):
     
     return {"code": 0, "message": "success", "data": feature}
 
-
-# ========== 接口4：点选查询 ==========
+# ==================== 接口4：点选查询 ====================
 @app.get("/api/query")
-def query_point(
-    lat: float = Query(..., description="纬度"), 
-    lng: float = Query(..., description="经度")
-):
+def query_point(lat: float = Query(..., description="纬度"), lng: float = Query(..., description="经度")):
     """根据经纬度查询所属区县"""
     try:
         from shapely.geometry import Point, shape
@@ -199,13 +199,20 @@ def query_point(
     
     return {"code": 404, "message": "该位置不在长沙市范围内"}
 
+# ==================== 健康检查 ====================
+@app.get("/")
+async def root():
+    return {"message": "长沙市地表覆盖可视化后端服务 (9区县)", "docs": "/docs"}
 
-# ========== 健康检查 ==========
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "code": 0}
+
 @app.get("/api/health")
-def health_check():
+async def api_health_check():
     return {"code": 0, "message": "后端服务运行正常"}
 
-
-@app.get("/")
-def root():
-    return {"message": "长沙市地表覆盖可视化后端服务", "docs": "/docs"}
+# ==================== 启动入口 ====================
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
