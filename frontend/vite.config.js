@@ -8,8 +8,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        // 本地 FastAPI 后端 (端口 8000)，不可用时自动读取本地 JSON 文件
-        target: 'http://127.0.0.1:8000',
+        // 后端同学电脑 (如果后端在本机则改为 http://127.0.0.1:8000)
+        target: 'http://10.180.103.240:8000',
         changeOrigin: true,
       },
     },

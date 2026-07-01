@@ -124,9 +124,14 @@
             />
           </template>
           <template #compare>
-            <ChangeComparison ref="changeComparisonRef" :district-id="districtId" />
-            <TemporalChange ref="temporalChangeRef" />
-            <SplitCompare ref="splitCompareRef" />
+            <div class="compare-sub-tabs">
+              <button :class="['sub-tab', { active: compareSubTab === 'group' }]" @click="compareSubTab = 'group'">分组对比</button>
+              <button :class="['sub-tab', { active: compareSubTab === 'rate' }]" @click="compareSubTab = 'rate'">变化率</button>
+              <button :class="['sub-tab', { active: compareSubTab === 'split' }]" @click="compareSubTab = 'split'">双屏对比</button>
+            </div>
+            <ChangeComparison v-show="compareSubTab === 'group'" ref="changeComparisonRef" :district-id="districtId" />
+            <TemporalChange v-show="compareSubTab === 'rate'" ref="temporalChangeRef" :district-id="districtId" />
+            <SplitCompare v-show="compareSubTab === 'split'" ref="splitCompareRef" :district-id="districtId" />
           </template>
           <template #spatial>
             <SpatialComparison 
@@ -180,6 +185,7 @@ const temporalChangeRef = ref(null)
 const spatialComparisonRef = ref(null)
 const changeComparisonRef = ref(null)
 const splitCompareRef = ref(null)
+const compareSubTab = ref('group')
 const isExporting = ref(false)
 const districts = ref([])
 
@@ -751,5 +757,33 @@ html, body, #app {
   min-width: 40px;
   text-align: right;
   font-family: monospace;
+}
+
+.compare-sub-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 3px;
+}
+
+.sub-tab {
+  flex: 1;
+  padding: 6px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sub-tab.active {
+  background: #fff;
+  color: #3b82f6;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 </style>

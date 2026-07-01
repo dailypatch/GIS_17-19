@@ -4,15 +4,6 @@
       <h3 class="tc-title">时序变化（2020 → 2021 变化率）</h3>
     </div>
 
-    <div class="tc-controls">
-      <label class="control-label">区县：</label>
-      <select v-model="selectedDistrict" @change="loadData" class="district-select">
-        <option v-for="d in districtOptions" :key="d.id" :value="d.id">
-          {{ d.name }}
-        </option>
-      </select>
-    </div>
-
     <div ref="chartRef" class="chart-container"></div>
 
     <div v-if="loading" class="loading-overlay">加载中...</div>
@@ -26,20 +17,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import * as echarts from 'echarts'
 import { useDataCache } from '../composables/useDataCache'
 import { CLASS_MAP, CLASS_ORDER } from '../config/colorMap'
-import { DISTRICT_MAP } from '../utils/comparisonHelpers'
 
 const { getCachedStats } = useDataCache()
 
-const districtOptions = Object.entries(DISTRICT_MAP).map(([id, name]) => ({
-  id: parseInt(id),
-  name
-}))
+const props = defineProps({
+  districtId: { type: Number, default: 0 },
+})
 
-const selectedDistrict = ref(3)
 const chartRef = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -199,8 +187,8 @@ async function loadData() {
 
   try {
     const [res2020, res2021] = await Promise.all([
-      getCachedStats(selectedDistrict.value, 2020),
-      getCachedStats(selectedDistrict.value, 2021)
+      getCachedStats(props.districtId, 2020),
+      getCachedStats(props.districtId, 2021)
     ])
 
     const data2020 = parseApiData(res2020)
@@ -230,6 +218,8 @@ function handleResize() {
 }
 
 defineExpose({ refresh, handleResize })
+
+watch(() => props.districtId, () => loadData())
 
 onMounted(() => {
   loadData()
